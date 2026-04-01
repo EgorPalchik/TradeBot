@@ -4,54 +4,38 @@
 ║       SwapGift NFT Sniper Bot v1.9           ║
 ║  Авто-покупка NFT на swapgift.live           ║
 ╚══════════════════════════════════════════════╝
-
-Зависимости:
-    pip install httpx
-
-Запуск:
-    python swapgift_sniper.py
 """
 
 import asyncio
 import json
 import time
 import os
+import sys
 import threading
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 
 import httpx
 
+# Принудительный вывод логов (сбрасываем буфер)
+sys.stdout.reconfigure(line_buffering=True)
+
 # ════════════════════════════════════════════════════════════
-#  ⚙️  CONFIG - НАСТРОЙ ПОД СЕБЯ
+#  ⚙️  CONFIG
 # ════════════════════════════════════════════════════════════
 
-# Токен авторизации (из браузера)
 AUTH_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3NzUxMDI2MzEsImlkIjoiNzc0OTEifQ.ycBjJd9_jxKl7IVysacU8deNDg8aDVDmx9FWYzCZtWo"
-# Версия клиента (из заголовков)
 CLIENT_VERSION = "46178330"
-
-# Твой баланс TON (если не получается получить через API)
 MY_BALANCE_TON = 100
-
-# Фиксированный лимит покупки в TON
 MAX_PRICE_TON = 3
 
-# Чёрный список NFT
 BLACKLIST: set = {
     "chillflame-17546299",
 }
 
-# Интервал между сканированиями (сек) - быстрый режим
 POLL_INTERVAL = 0.05
-
-# Количество NFT за один запрос
 FETCH_LIMIT = 2
-
-# True - только логи, False - реальные покупки
 DRY_RUN = False
-
-# Максимальное количество неудачных попыток для одного NFT
 MAX_ATTEMPTS = 3
 
 # ════════════════════════════════════════════════════════════
@@ -149,17 +133,13 @@ def get_headers() -> Dict[str, str]:
         "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
         "Origin": "https://swapgift.live",
         "Referer": "https://swapgift.live/",
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/143.0.0.0 Safari/537.36"
-        ),
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/143.0.0.0 Safari/537.36",
         "X-Client-Version": CLIENT_VERSION,
     }
 
 
 # ════════════════════════════════════════════════════════════
-#  Логирование
+#  Логирование (с принудительным выводом)
 # ════════════════════════════════════════════════════════════
 
 def ts() -> str:
@@ -168,58 +148,41 @@ def ts() -> str:
 
 def log_ping(n: int, count: int, ms: int, floor_p: Optional[float], frozen: int, balance: float):
     floor_str = f"{floor_p} TON" if floor_p is not None else "—"
-    print(
-        f"[{ts()}] 🔄 PING #{n:<5} | лотов: {count:<3} | флор: {floor_str:<10} | лимит: {MAX_PRICE_TON:.4f} | баланс: {balance:.4f} | зам: {frozen} | {ms}ms")
+    print(f"[{ts()}] 🔄 PING #{n:<5} | лотов: {count:<3} | флор: {floor_str:<10} | лимит: {MAX_PRICE_TON:.4f} | баланс: {balance:.4f} | зам: {frozen} | {ms}ms", flush=True)
 
 
 def log_found(asset: dict):
-    print(
-        f"[{ts()}] ✅ НАЙДЕНО  | "
-        f"{asset['name']} [{asset.get('modelName', '?')}] | "
-        f"#{asset.get('giftNumber', '?')} | "
-        f"{asset['exchangePriceTon']} TON | id={asset['id']}"
-    )
+    print(f"[{ts()}] ✅ НАЙДЕНО  | {asset['name']} [{asset.get('modelName', '?')}] | #{asset.get('giftNumber', '?')} | {asset['exchangePriceTon']} TON | id={asset['id']}", flush=True)
 
 
 def log_buy_ok(asset: dict):
-    print(
-        f"[{ts()}] 💰 КУПЛЕНО  | "
-        f"{asset['name']} [{asset.get('modelName', '?')}] | "
-        f"{asset['exchangePriceTon']} TON | id={asset['id']} ✓"
-    )
+    print(f"[{ts()}] 💰 КУПЛЕНО  | {asset['name']} [{asset.get('modelName', '?')}] | {asset['exchangePriceTon']} TON | id={asset['id']} ✓", flush=True)
 
 
 def log_buy_fail(asset: dict, reason: str = "", attempt: int = None):
     attempt_str = f" (попытка {attempt}/{MAX_ATTEMPTS})" if attempt is not None else ""
-    print(f"[{ts()}] ❌ ОШИБКА   | id={asset['id']}{attempt_str} — {reason}")
+    print(f"[{ts()}] ❌ ОШИБКА   | id={asset['id']}{attempt_str} — {reason}", flush=True)
 
 
 def log_skip(asset: dict, reason: str):
     if reason != "blacklist":
-        print(
-            f"[{ts()}] ⏭️  ПРОПУСК | "
-            f"{asset.get('name', '?')} [{asset.get('modelName', '?')}] — {reason}"
-        )
+        print(f"[{ts()}] ⏭️  ПРОПУСК | {asset.get('name', '?')} [{asset.get('modelName', '?')}] — {reason}", flush=True)
 
 
 def log_frozen(asset: dict):
-    print(
-        f"[{ts()}] 🧊 ЗАМОРОЖЕН| "
-        f"{asset.get('name', '?')} [{asset.get('modelName', '?')}] "
-        f"id={asset['id']} — {MAX_ATTEMPTS} неудач"
-    )
+    print(f"[{ts()}] 🧊 ЗАМОРОЖЕН| {asset.get('name', '?')} [{asset.get('modelName', '?')}] id={asset['id']} — {MAX_ATTEMPTS} неудач", flush=True)
 
 
 def log_err(msg: str):
-    print(f"[{ts()}] 🔴 ERR     | {msg}")
+    print(f"[{ts()}] 🔴 ERR     | {msg}", flush=True)
 
 
 def log_balance(balance: float):
-    print(f"[{ts()}] 💰 Баланс  : {balance:.4f} TON")
+    print(f"[{ts()}] 💰 Баланс  : {balance:.4f} TON", flush=True)
 
 
 def log_stats(total_bought: int, total_spent: float):
-    print(f"[{ts()}] 📊 СТАТИСТИКА | Куплено: {total_bought} NFT | Потрачено: {total_spent:.4f} TON")
+    print(f"[{ts()}] 📊 СТАТИСТИКА | Куплено: {total_bought} NFT | Потрачено: {total_spent:.4f} TON", flush=True)
 
 
 # ════════════════════════════════════════════════════════════
@@ -253,30 +216,21 @@ def is_blacklisted(asset: dict) -> bool:
 #  API
 # ════════════════════════════════════════════════════════════
 
-async def gql(
-        client: httpx.AsyncClient,
-        query: str,
-        variables: dict,
-        retries: int = 1,
-) -> Optional[dict]:
+async def gql(client: httpx.AsyncClient, query: str, variables: dict, retries: int = 1) -> Optional[dict]:
     for attempt in range(retries + 1):
         try:
             payload = {"query": query.strip(), "variables": variables}
             resp = await client.post(GQL_URL, json=payload)
-
             if resp.status_code != 200:
                 if attempt < retries:
                     continue
                 return None
-
             data = resp.json()
             if "errors" in data:
                 if attempt < retries:
                     continue
                 return None
-
             return data.get("data")
-
         except:
             if attempt < retries:
                 continue
@@ -305,11 +259,7 @@ async def fetch_market(client: httpx.AsyncClient) -> List[dict]:
     return items if isinstance(items, list) else []
 
 
-async def buy_asset(
-        client: httpx.AsyncClient,
-        asset_id: int,
-        assets_price_total: float,
-) -> tuple[bool, str]:
+async def buy_asset(client: httpx.AsyncClient, asset_id: int, assets_price_total: float) -> tuple[bool, str]:
     variables = {
         "userInventoryItemIds": [],
         "assetIds": [asset_id],
@@ -317,11 +267,9 @@ async def buy_asset(
         "assetsPriceTotal": assets_price_total,
         "inventoryItemsPriceTotal": 0,
     }
-
     data = await gql(client, MUTATION_BUY, variables)
     if not data:
         return False, "NO_RESPONSE"
-
     result = data.get("exchangeInventoryItemsForAssets", {})
     success = result.get("success", False)
     code = result.get("code", "")
@@ -333,13 +281,7 @@ async def buy_asset(
 # ════════════════════════════════════════════════════════════
 
 def is_fatal_code(code: str) -> bool:
-    fatal_codes = {
-        "INVALID_ASSET_IDS",
-        "ASSET_NOT_FOUND",
-        "ALREADY_SOLD",
-        "NOT_FOUND",
-        "INSUFFICIENT_BALANCE",
-    }
+    fatal_codes = {"INVALID_ASSET_IDS", "ASSET_NOT_FOUND", "ALREADY_SOLD", "NOT_FOUND", "INSUFFICIENT_BALANCE"}
     return any(fc in code for fc in fatal_codes)
 
 
@@ -352,11 +294,10 @@ def calc_floor(items: List[dict], skip_ids: set) -> Optional[float]:
 
 
 # ════════════════════════════════════════════════════════════
-#  Веб-сервер для Render (чтобы сервис считался живым)
+#  Веб-сервер
 # ════════════════════════════════════════════════════════════
 
 def run_web_server():
-    """Простой HTTP сервер, чтобы Render думал что сервис работает"""
     from http.server import HTTPServer, BaseHTTPRequestHandler
     
     class HealthHandler(BaseHTTPRequestHandler):
@@ -365,9 +306,8 @@ def run_web_server():
             self.send_header('Content-type', 'text/plain')
             self.end_headers()
             self.wfile.write(b'Bot is running')
-        
         def log_message(self, format, *args):
-            pass  # Отключаем логи веб-сервера
+            pass
     
     port = int(os.environ.get('PORT', 8000))
     server = HTTPServer(('0.0.0.0', port), HealthHandler)
@@ -379,14 +319,14 @@ def run_web_server():
 # ════════════════════════════════════════════════════════════
 
 async def main():
-    print("╔══════════════════════════════════════════════╗")
-    print("║       SwapGift NFT Sniper Bot v1.9           ║")
-    print(f"║  Лимит цены : {MAX_PRICE_TON} TON                        ║")
-    print(f"║  Интервал   : {POLL_INTERVAL}s                           ║")
-    print(f"║  DRY RUN    : {'ДА ⚠️  (тест)' if DRY_RUN else 'НЕТ 🔥 (реальные покупки)'}          ║")
-    print(f"║  Max попыток: {MAX_ATTEMPTS}                              ║")
-    print(f"║  Blacklist  : {len(BLACKLIST)} записей                      ║")
-    print("╚══════════════════════════════════════════════╝\n")
+    print("╔══════════════════════════════════════════════╗", flush=True)
+    print("║       SwapGift NFT Sniper Bot v1.9           ║", flush=True)
+    print(f"║  Лимит цены : {MAX_PRICE_TON} TON                        ║", flush=True)
+    print(f"║  Интервал   : {POLL_INTERVAL}s                           ║", flush=True)
+    print(f"║  DRY RUN    : {'ДА ⚠️  (тест)' if DRY_RUN else 'НЕТ 🔥 (реальные покупки)'}          ║", flush=True)
+    print(f"║  Max попыток: {MAX_ATTEMPTS}                              ║", flush=True)
+    print(f"║  Blacklist  : {len(BLACKLIST)} записей                      ║", flush=True)
+    print("╚══════════════════════════════════════════════╝\n", flush=True)
 
     if AUTH_TOKEN == "ВСТАВЬ_СВОЙ_JWT_ТОКЕН_СЮДА":
         log_err("AUTH_TOKEN не задан!")
@@ -413,6 +353,8 @@ async def main():
         else:
             log_err("Не удалось получить баланс, используем значение из конфига")
 
+        print("[{}] 🚀 Бот запущен и сканирует NFT...".format(ts()), flush=True)
+
         try:
             while True:
                 t0 = time.monotonic()
@@ -424,7 +366,9 @@ async def main():
                 all_skip = bought_ids | failed_ids
                 real_floor = calc_floor(items, all_skip)
 
-                log_ping(ping_count, len(items), elapsed_ms, real_floor, len(failed_ids), current_balance)
+                # Выводим пинг раз в 10 секунд, чтобы не заспамить (но для теста показываем чаще)
+                if ping_count % 20 == 0 or len(items) > 0:
+                    log_ping(ping_count, len(items), elapsed_ms, real_floor, len(failed_ids), current_balance)
 
                 if not items:
                     continue
@@ -471,14 +415,13 @@ async def main():
                                 failed_ids.add(aid)
                                 log_frozen(asset)
 
-
         except KeyboardInterrupt:
-            print(f"\n[{ts()}] 🛑 Бот остановлен")
-            print(f"[{ts()}] 📊 Финальная статистика | Куплено: {len(bought_ids)} NFT | Потрачено: {total_spent:.4f} TON")
+            print(f"\n[{ts()}] 🛑 Бот остановлен", flush=True)
+            print(f"[{ts()}] 📊 Финальная статистика | Куплено: {len(bought_ids)} NFT | Потрачено: {total_spent:.4f} TON", flush=True)
 
 
 if __name__ == "__main__":
-    # Запускаем веб-сервер в отдельном потоке (для Render)
+    # Запускаем веб-сервер в отдельном потоке
     web_thread = threading.Thread(target=run_web_server, daemon=True)
     web_thread.start()
     
@@ -486,4 +429,4 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print(f"\n[{ts()}] 🛑 Бот остановлен")
+        print(f"\n[{ts()}] 🛑 Бот остановлен", flush=True)
