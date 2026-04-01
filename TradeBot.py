@@ -16,6 +16,7 @@ import asyncio
 import json
 import time
 import os
+import threading
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 
@@ -351,6 +352,29 @@ def calc_floor(items: List[dict], skip_ids: set) -> Optional[float]:
 
 
 # ════════════════════════════════════════════════════════════
+#  Веб-сервер для Render (чтобы сервис считался живым)
+# ════════════════════════════════════════════════════════════
+
+def run_web_server():
+    """Простой HTTP сервер, чтобы Render думал что сервис работает"""
+    from http.server import HTTPServer, BaseHTTPRequestHandler
+    
+    class HealthHandler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header('Content-type', 'text/plain')
+            self.end_headers()
+            self.wfile.write(b'Bot is running')
+        
+        def log_message(self, format, *args):
+            pass  # Отключаем логи веб-сервера
+    
+    port = int(os.environ.get('PORT', 8000))
+    server = HTTPServer(('0.0.0.0', port), HealthHandler)
+    server.serve_forever()
+
+
+# ════════════════════════════════════════════════════════════
 #  Главный цикл
 # ════════════════════════════════════════════════════════════
 
@@ -454,6 +478,11 @@ async def main():
 
 
 if __name__ == "__main__":
+    # Запускаем веб-сервер в отдельном потоке (для Render)
+    web_thread = threading.Thread(target=run_web_server, daemon=True)
+    web_thread.start()
+    
+    # Запускаем бота
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
