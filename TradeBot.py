@@ -30,7 +30,7 @@ AUTH_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3NzUxMDI2MzEsImlkI
 CLIENT_VERSION = "46178330"
 
 # Твой баланс TON (если не получается получить через API)
-MY_BALANCE_TON = 100
+MY_BALANCE_TON = 9999
 
 # Прокси (если нужен, укажи в формате "http://user:pass@ip:port" или оставь None)
 PROXY = None
